@@ -1,7 +1,10 @@
 # scopes-scraper
 
-Clone repo
 
-run "npm install"
+To run scraper: 
+  run "npm install"
+  
+  run "node finalScraper"
 
-run "node finalScraper"
+To run website:
+  run "python3 -m http.server"
