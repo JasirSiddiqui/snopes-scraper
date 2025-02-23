@@ -31,7 +31,6 @@ function delay(time) {
     });
 }
 
-// Function to scroll
 async function autoScroll(page) {
     await page.evaluate(async () => {
       await new Promise((resolve) => {
@@ -55,7 +54,6 @@ async function autoScroll(page) {
     await delay(1000);
 }
 
-
 // Function to check tiktok and twitter pages to see if video is contained within them
 async function secondaryCheck(link, browser, platform){
 
@@ -67,7 +65,7 @@ async function secondaryCheck(link, browser, platform){
     let videoFound = false;
 
     if(platform === 'tiktok'){
-        videoFound = page.evaluate(() => {
+        videoFound = await page.evaluate(() => {
             
             // Checks if error container exists
             const result1 = document.querySelector('div#embred-error-container') !== null;
@@ -98,22 +96,23 @@ async function secondaryCheck(link, browser, platform){
 async function scrapeSnoop(){
 
     // Launch browser
-    const browser = await puppeteer.launch({
+    let browser = await puppeteer.launch({
         headless: false,
         protocolTimeout: 60000
     });
 
     // Array to store all webpages to scrape
-    let allPages = [];
+    let allPages = [{url: "esfe"}
+    ];
 
-    const page = await browser.newPage();
+    let page = await browser.newPage();
 
     // Go to pages where articles are contained when searching for 'Video' and save all the titles and urls
-    for(let i = 1; i <= 6; i++){
+    /*for(let i = 1; i <= 6; i++){
         await page.goto(`https://www.snopes.com/search/?q=video#gsc.tab=0&gsc.q=video&gsc.page=${i}`);
 
         // Long delay to avoid captcha
-        await delay(10000);
+        await delay(5000);
 
         const webpages = await page.evaluate(() => {    
             const articles = document.querySelectorAll('.gsc-result');
@@ -125,26 +124,28 @@ async function scrapeSnoop(){
 
         const newPages = [...allPages, ...webpages];
         allPages = newPages;
-    }  
+    }  */
     
     // Variable to track how many pages have been scraped, will stop at 50
     let i = 0;
-
+    let actual = 0;
+    
     // Loops through all the webpages 
-    for(const truePage of allPages){
+    for(truePage of allPages){
 
         //Keep track of how many pages you've scraped so far
         console.log("NUMBER " + i);
-
+        console.log("ACTUAL " + actual);
         // Skips any bad/invalid page titles which were scraped before
         if(truePage.title == 'Video'){
+            actual++;
             continue;
         }
 
         // Go to the article and wait for 2 seconds
-        await page.goto(truePage.url);
-        await delay(2000);
-
+        await page.goto("https://www.snopes.com/news/2023/02/06/zuckerberg-vaccines-video/");
+        await delay(1000);
+        await autoScroll(page);
         // Get information about the title, representative text, veracity, and date
         let content = await page.evaluate(() => {
             let title = document.querySelector('h1').textContent.trim();
@@ -164,17 +165,29 @@ async function scrapeSnoop(){
 
         // Continues onto the next webpage if the current page is invalid
         if(!content){
+            actual++;
             continue;
         }
 
         // Sometimes videos are stored in iframe tags, so we get all the iFrames contained within the page and the source video they're showing, if any
-        let iFrames = await page.evaluate(() => {
+        let iFrames = await page.evaluate(() => {   
           let final = Array.from(document.querySelectorAll('iframe')).map(frame => ({
             link: (frame.getAttribute('src') || frame.getAttribute('data-src'))
           })) 
 
+          console.log("HEREEEEEEEEEE");
+          let temp = Array.from(document.querySelectorAll('iframe'));
+          for(let lol of temp){
+            console.log(lol);
+            console.log(lol.getAttribute('src'));
+            console.log(lol.getAttribute('data-src'));
+          }
+
           return final;
         })
+
+        console.log("---------");
+        console.log(final);
 
         // Variable which will eventually store the source of a video, if it can be found
         let iFrameLink = null;
@@ -182,8 +195,12 @@ async function scrapeSnoop(){
         // Loop through all the iframe links we get from before
         for (let iFram of iFrames){
 
+            //console.log(iFram.link);
+
             // Convert link to string
             let actualLink = String(iFram.link);
+
+            //console.log(actualLink);
 
             // Sometimes tiktok embeds show deleted/unavailable videos, so a secondary check must be done to ensure it is showing a valid video
             if(actualLink.includes('tiktok.com')){
@@ -199,6 +216,8 @@ async function scrapeSnoop(){
                 break;
             }
         }
+
+        //console.log("finished iframe");
 
         // Videos are also stored as href's in a tags, so those must be checked
         let regularLinks = await page.evaluate(() => {
@@ -216,6 +235,8 @@ async function scrapeSnoop(){
         for(let href of regularLinks){
 
             let link = href.href;
+
+           // console.log(link);
 
             // Sometimes the a tag's do not contain an href 
             if(link == null) continue;
@@ -250,6 +271,9 @@ async function scrapeSnoop(){
                     trueLink = String(originalLink);
                     break;
                 }
+            }else if(link.includes("instagram.com") || link.includes("facebook.com") || link.includes("c-span.org")){
+                trueLink = String(originalLink);
+                break;
             }
         }
 
@@ -267,8 +291,8 @@ async function scrapeSnoop(){
                 return iFrameLink;
             }else{
             
-            console.log(iFrameLink);
-            console.log(trueLink);
+           // console.log(iFrameLink);
+           // console.log(trueLink);
 
             // Find the original iframe html element
             let iFrame = document.querySelector(`iframe[src="${iFrameLink}"]`) || 
@@ -280,7 +304,7 @@ async function scrapeSnoop(){
             let linkFrame = null;
 
             for (const link of linkFrames) {
-                console.log(link.href);
+            //    console.log(link.href);
                 if(link.href === trueLink){
                     linkFrame = link;
                     break;
@@ -299,6 +323,7 @@ async function scrapeSnoop(){
 
         // If a link for a video could not be found, continue to the next webpage
         if(finalLink == null){
+         actual++;
           continue;
         }
 
@@ -328,6 +353,7 @@ async function scrapeSnoop(){
                    
         // Increment i and make final object
         i++;
+        actual++;
         let finalContent = {
             Headline: content.title,
             Representative_Text: content.excerpt,
@@ -339,7 +365,17 @@ async function scrapeSnoop(){
 
         // Log the content so you can keep track of progress and write it to the JSON file
         console.log(finalContent);
-        appendToJson(finalContent, 'test.json');
+        appendToJson(finalContent, 'test4.json');
+
+        if((actual % 10) == 0){
+            await browser.close();
+            browser = await puppeteer.launch({
+                headless: false,
+                protocolTimeout: 60000
+            });
+
+            page = await browser.newPage();
+        }
 
         // Stop once we get to 50 pages
         if(i == 50){
