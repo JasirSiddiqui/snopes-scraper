@@ -31,7 +31,7 @@ function delay(time) {
     });
 }
 
-// Function to scroll
+// Function to scroll through webpage and load all content
 async function autoScroll(page) {
     await page.evaluate(async () => {
       await new Promise((resolve) => {
@@ -141,8 +141,9 @@ async function scrapeSnoop(){
             continue;
         }
 
-        // Go to the article and wait for 2 seconds
+        // Go to the article and wait for 2 seconds and scroll through it
         await page.goto(truePage.url);
+        await autoScroll(page);
         await delay(2000);
 
         // Get information about the title, representative text, veracity, and date
@@ -250,6 +251,9 @@ async function scrapeSnoop(){
                     trueLink = String(originalLink);
                     break;
                 }
+            }else if(link.includes("instagram.com") || link.includes("facebook.com") || link.includes("c-span.org")){
+                trueLink = String(originalLink);
+                break;
             }
         }
 
