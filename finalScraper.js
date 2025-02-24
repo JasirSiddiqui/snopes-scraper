@@ -57,48 +57,58 @@ async function autoScroll(page) {
 
 
 // Function to check tiktok and twitter pages to see if video is contained within them
-async function secondaryCheck(link, browser, platform){
+async function secondaryCheck(link, browser, platform, retryCount){
 
-    // og to page and wait 
-    const page = await browser.newPage();
-    page.goto(link);
-    await delay(3000);
-    
-    let videoFound = false;
+    try{
+        // go to page and wait 
+        let page = await browser.newPage();
+        page.goto(link);
+        await delay(3000);
+        
+        let videoFound = false;
 
-    if(platform === 'tiktok'){
-        videoFound = page.evaluate(() => {
-            
-            // Checks if error container exists
-            const result1 = document.querySelector('div#embred-error-container') !== null;
+        if(platform === 'tiktok'){
+            videoFound = page.evaluate(() => {
+                
+                // Checks if error container exists
+                const result1 = document.querySelector('div#embred-error-container') !== null;
 
-            // Checks if a different error wrapper exists
-            let result2 = true; 
-            if(document.querySelector('#main-content-video_detail')){
-                result2 = Array.from(document.querySelector('#main-content-video_detail').firstChild.classList)[0].includes('ErrorWrapper')
-            }
+                // Checks if a different error wrapper exists
+                let result2 = true; 
+                if(document.querySelector('#main-content-video_detail')){
+                    result2 = Array.from(document.querySelector('#main-content-video_detail').firstChild.classList)[0].includes('ErrorWrapper')
+                }
 
-            // Returns true only if neither error page is displayed
-            return !result2 && !result1;
-        })
-    }else if (platform === 'twitter'){
+                // Returns true only if neither error page is displayed
+                return !result2 && !result1;
+            })
+        }else if (platform === 'twitter'){
 
-        // Checks if twitter page contains a video player
-        videoFound = page.evaluate(() => {
-        return document.querySelector(`div[data-testid="videoPlayer"]`) != null;
-        });
-    }
+            // Checks if twitter page contains a video player
+            videoFound = page.evaluate(() => {
+            return document.querySelector(`div[data-testid="videoPlayer"]`) != null;
+            });
+        }
 
-    // Close page and return result
-    await page.close();
+        // Close page and return result
+        await page.close();
     return videoFound
+    } catch (error){
+        console.log("trying to go to new webpage again");
+        if(retryCount < 3){
+            await page.close();
+            return secondaryCheck(link, browser, platform, retryCount + 1);
+        }else{
+            console.log("couldn't resolve");
+        }
+    }
 }
 
 // Main scraping function
 async function scrapeSnoop(){
 
     // Launch browser
-    const browser = await puppeteer.launch({
+    let browser = await puppeteer.launch({
         headless: false,
         protocolTimeout: 60000
     });
@@ -106,14 +116,14 @@ async function scrapeSnoop(){
     // Array to store all webpages to scrape
     let allPages = [];
 
-    const page = await browser.newPage();
+    let page = await browser.newPage();
 
     // Go to pages where articles are contained when searching for 'Video' and save all the titles and urls
     for(let i = 1; i <= 6; i++){
         await page.goto(`https://www.snopes.com/search/?q=video#gsc.tab=0&gsc.q=video&gsc.page=${i}`);
 
         // Long delay to avoid captcha
-        await delay(10000);
+        await delay(5000);
 
         const webpages = await page.evaluate(() => {    
             const articles = document.querySelectorAll('.gsc-result');
@@ -129,15 +139,17 @@ async function scrapeSnoop(){
     
     // Variable to track how many pages have been scraped, will stop at 50
     let i = 0;
+    let actual = 0;
 
     // Loops through all the webpages 
-    for(const truePage of allPages){
+    for(const truePage of allPages.slice(55)){
 
         //Keep track of how many pages you've scraped so far
         console.log("NUMBER " + i);
-
+        console.log("ACTUAL " + actual);
         // Skips any bad/invalid page titles which were scraped before
         if(truePage.title == 'Video'){
+            actual++;
             continue;
         }
 
@@ -165,6 +177,7 @@ async function scrapeSnoop(){
 
         // Continues onto the next webpage if the current page is invalid
         if(!content){
+            actual++;
             continue;
         }
 
@@ -188,7 +201,7 @@ async function scrapeSnoop(){
 
             // Sometimes tiktok embeds show deleted/unavailable videos, so a secondary check must be done to ensure it is showing a valid video
             if(actualLink.includes('tiktok.com')){
-                if(await secondaryCheck(actualLink, browser, "tiktok")){
+                if(await secondaryCheck(actualLink, browser, "tiktok", 0)){
                     iFrameLink = String(actualLink);
                     break;
                 }
@@ -219,7 +232,9 @@ async function scrapeSnoop(){
             let link = href.href;
 
             // Sometimes the a tag's do not contain an href 
-            if(link == null) continue;
+            if(link == null){
+                continue;
+            }
 
             // Sometimes the links are stored within web archives, which is much slower to load, so we extract the actual link, and perserve the original
             let originalLink = link;
@@ -236,7 +251,7 @@ async function scrapeSnoop(){
             }else if((link.includes("twitter.com") || link.includes("x.com")) && link.includes("status")){
 
                 // Checks if the twitter post contains a video, and if it does, save it
-                let result = await secondaryCheck(link, browser, "twitter");
+                let result = await secondaryCheck(link, browser, "twitter", 0);
                 if(result){
                     trueLink = String(originalLink);
                     break;
@@ -246,7 +261,7 @@ async function scrapeSnoop(){
             }else if(link.includes("tiktok.com")){
 
                 // Makes a secondary check to make sure the video is still up
-                let result = await secondaryCheck(link, browser, "tiktok");
+                let result = await secondaryCheck(link, browser, "tiktok", 0);
                 if(result){
                     trueLink = String(originalLink);
                     break;
@@ -303,6 +318,7 @@ async function scrapeSnoop(){
 
         // If a link for a video could not be found, continue to the next webpage
         if(finalLink == null){
+            actual++;
           continue;
         }
 
@@ -329,9 +345,10 @@ async function scrapeSnoop(){
         }else if(finalLink.includes("facebook.com")){
             source = "Facebook"
         }
-                   
+
         // Increment i and make final object
         i++;
+        actual++;
         let finalContent = {
             Headline: content.title,
             Representative_Text: content.excerpt,
@@ -343,7 +360,18 @@ async function scrapeSnoop(){
 
         // Log the content so you can keep track of progress and write it to the JSON file
         console.log(finalContent);
-        appendToJson(finalContent, 'test.json');
+        appendToJson(finalContent, 'final.json');
+
+        // Code to close browser and reset to avoid browser getting hung in the middle of scraping
+        if((actual % 10) == 0){
+            await browser.close();
+            browser = await puppeteer.launch({
+                headless: false,
+                protocolTimeout: 30000
+            });
+
+            page = await browser.newPage();
+        }
 
         // Stop once we get to 50 pages
         if(i == 50){
